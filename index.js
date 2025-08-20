@@ -19,8 +19,14 @@ const server = http.createServer(async (req, res) => {
 
 	const url = new URL(req.url, `http://${req.headers.host}`);
 
+	if (url.pathname === '/') {
+		res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+		return res.end('<html><body><a href="/metrics">/metrics</a><br/><a href="/health">/health</a></body></html>');
+	}
+
 	if (url.pathname === '/metrics') {
 		try {
+			const startTimestamp = Date.now();
 			const target = await cdpCreateTarget(DISHY_ADDRESS);
 			const { id, webSocketDebuggerUrl } = target;
 			let data;
@@ -46,6 +52,8 @@ const server = http.createServer(async (req, res) => {
 			}
 
 			res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
+			const endTimestamp = Date.now();
+			data.exporter_request_ms = endTimestamp - startTimestamp;
 			const body = jsonToPrometheus(data, METRICS_PREFIX);
 			return res.end(body);
 		} catch (e) {
