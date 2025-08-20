@@ -45,19 +45,30 @@ const server = http.createServer(async (req, res) => {
 				res.writeHead(502, { 'Content-Type': 'application/json' });
 				return res.end(
 					JSON.stringify({
-									   error: 'Dishy JSON im DOM nicht gefunden',
-									   hint: 'Prüfe Erreichbarkeit oder erhöhe timeoutMs.',
-								   }),
+						error: 'Dishy JSON not found in DOM',
+						hint: 'Check reachability or increase timeoutMs.'
+					}),
 				);
 			}
 
-			res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
 			const endTimestamp = Date.now();
 			data.exporter_request_ms = endTimestamp - startTimestamp;
-			const body = jsonToPrometheus(data, METRICS_PREFIX);
+
+			let body;
+			try {
+				body = jsonToPrometheus(data, METRICS_PREFIX);
+			} catch (convErr) {
+				res.writeHead(500, { 'Content-Type': 'application/json' });
+				return res.end(JSON.stringify({
+					error: 'Metric conversion failed',
+					message: convErr && convErr.message ? convErr.message : String(convErr)
+				}));
+			}
+
+			res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
 			return res.end(body);
 		} catch (e) {
-			console.error('CDP-Fehler:', e && e.message ? e.message : e);
+			console.error('CDP-Error:', e && e.message ? e.message : e);
 			res.writeHead(500, { 'Content-Type': 'application/json' });
 			return res.end(
 				JSON.stringify({

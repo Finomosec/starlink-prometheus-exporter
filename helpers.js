@@ -8,7 +8,7 @@
  * - Numeric values are tracked with their numeric value.
  * - Boolean values are tracked as 1/0.
  * - Arrays emit one sample per element (primitive elements as {value="..."} 1).
-  * - Empty arrays emit a single sample with {value="none"} 1.
+ * - Empty arrays emit a single sample with {value="none"} 1.
  * - Nested object names are NOT concatenated; instead:
  *     metric name = first path segment, remaining path joins into label {name="<rest_in_snake_case>"}.
  * - Emits #TYPE (gauge) headers for each metric once.
@@ -102,15 +102,19 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
     // arrays
     if (Array.isArray(node)) {
       if (node.length === 0) {
-        // Emit a placeholder for empty arrays
-        emitSample(baseName, { value: 'none' }, 1);
-        return;
-      }
+          // Emit a placeholder for empty arrays: metric derived from path, with name label (if any)
+          const { metric, nameLabel } = deriveMetric(path);
+          const labels = {};
+          if (nameLabel) labels.name = nameLabel;
+          labels.value = 'none';
+          emitSample(metric, labels, 1);
+          return;
+        }
 
-      node.forEach((el, idx) => {
-        if (el == null) return;
-        if (typeof el === 'object') {
-          // recurse into object elements, add index label to descendants
+        node.forEach((el, idx) => {
+          if (el == null) return;
+          if (typeof el === 'object') {
+            // Recurse into object elements, add index label to descendants
           const rec = (obj, subPath, extraLabels) => {
             if (obj == null) return;
             if (typeof obj !== 'object') {
