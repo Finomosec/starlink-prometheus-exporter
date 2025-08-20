@@ -1,8 +1,8 @@
 {
-  "name": "starlink-server",
+  "name": "starlink-prometheus-exporter",
   "version": "1.0.0",
   "private": true,
-  "description": "Minimaler Node.js HTTP-Server (nur GET)",
+  "description": "Export Starlink telemetry data to Prometheus",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
