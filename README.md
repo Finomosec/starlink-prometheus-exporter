@@ -21,6 +21,9 @@ The exporter keeps a persistent headless Chromium/Chrome process alive for fast 
 - Request timing added to the exported JSON as `exporter_request_ms` and exposed as a metric
 - Fast scrapes after startup thanks to a persistent headless browser
 - Health endpoint (`/health`)
+- New metrics are automatically added as they are exposed in the Dishy web UI
+- This exporter should work with any (current or future) version of Starlink Dishy
+  - ...as long as the Dishy web UI exposes the JSON data in the `<div class="Json-Text">` element
 
 ## Endpoints
 
