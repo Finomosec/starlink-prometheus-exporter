@@ -53,9 +53,11 @@ Prerequisites:
 - Node.js >= 18
 - Chromium or Google Chrome available on the system (set `CHROME_BIN` if auto-detection fails)
 
-Clone and install:
+Install:
 
 ~~~bash
+git clone https://github.com/Finomosec/starlink-prometheus-exporter.git
+cd starlink-prometheus-exporter
 npm install
 npm start  # the exporter listens on http://localhost:8055/metrics by default
 ~~~
