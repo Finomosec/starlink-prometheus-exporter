@@ -16,7 +16,7 @@ The exporter keeps a persistent headless Chromium/Chrome process alive for fast 
   - Numbers are emitted as numeric values
   - Booleans are emitted as 1/0
   - Arrays emit one sample per element (primitive items as `{value="..."} 1`)
-  - Nested object names are concatenated in snake_case (e.g., `alerts_dish_is_heating`)
+  - Nested keys are NOT concatenated. Metric name = first path segment; remaining path (snake_case) goes into label `name` (e.g., `alerts.dish_is_heating` → `starlink_alerts{name="dish_is_heating",id="<id>"} 0`)
   - All metrics are gauges; `# HELP` and `# TYPE` headers are emitted for each
 - Request timing added to the exported JSON as `exporter_request_ms` and exposed as a metric
 - Fast scrapes after startup thanks to a persistent headless browser
@@ -27,6 +27,8 @@ The exporter keeps a persistent headless Chromium/Chrome process alive for fast 
 
 ## Endpoints
 
+- `GET /`  
+  Minimal HTML with links to /metrics and /health.
 - `GET /metrics`  
   Renders the Dishy page at `DISHY_ADDRESS`, extracts page JSON and exposes it as Prometheus metrics (text-format v0.0.4).
 - `GET /health`  
@@ -134,8 +136,8 @@ systemctl --user start starlink-exporter
 - Types:
     - Numbers → numeric gauge values
     - Booleans → 1/0
-    - Strings → `<name>{value="..."} 1`
+    - Strings → `<metric>{value="..."} 1`
     - Arrays → one sample per element (primitive elements as `{value="..."} 1`)
-- Nesting: Nested object names are concatenated in snake_case (e.g., `alerts_dish_is_heating`).
+- Nesting: Nested keys are not concatenated. The metric name is the first path segment; the remaining path (snake_case) is emitted as label `name`. Example: `alerts.dish_is_heating` → `starlink_alerts{name="dish_is_heating",id="123"} 0`.
 - Additional exporter metric: `exporter_request_ms` (duration per request in milliseconds).
-- Endpoints: `/metrics` (Prometheus text format), `/health` (simple health check).
+- Endpoints: `/` (landing page), `/metrics` (Prometheus text format), `/health` (simple health check).
