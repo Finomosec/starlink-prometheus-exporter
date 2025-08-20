@@ -4,11 +4,12 @@
  * Dynamically converts a JSON object into Prometheus metrics (text format).
  * - All metrics receive the provided prefix.
  * - The "id" field is not emitted as its own metric, but added as a label to every metric (if present).
- * - String values are tracked as <name>{value="<string>"} 1.
+ * - String values are tracked as <metric>{value="<string>"} 1.
  * - Numeric values are tracked with their numeric value.
  * - Boolean values are tracked as 1/0.
  * - Arrays emit one sample per element (primitive elements as {value="..."} 1).
- * - Nested object names are concatenated using snake_case.
+ * - Nested object names are NOT concatenated; instead:
+ *     metric name = first path segment, remaining path joins into label {name="<rest_in_snake_case>"}.
  * - Emits #TYPE (gauge) headers for each metric once.
  */
 function jsonToPrometheus(data, prefix = 'starlink_') {
@@ -60,22 +61,40 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
     lines.push(`${prefix}${metricName}${labelStr} ${value}`);
   };
 
+  // derive metric name and "name" label from path
+  const deriveMetric = (path) => {
+    if (!path || path.length === 0) {
+      return { metric: 'root', nameLabel: undefined };
+    }
+    const metric = toSnake(path[0]);
+    const nameLabel = path.length > 1 ? path.slice(1).map(toSnake).join('_') : undefined;
+    return { metric, nameLabel };
+  };
+
+  const emitPrimitiveAtPath = (path, extraLabels, valueNode) => {
+    const { metric, nameLabel } = deriveMetric(path);
+    const labels = Object.assign({}, extraLabels);
+    if (nameLabel) labels.name = nameLabel;
+
+    if (typeof valueNode === 'boolean') {
+      emitSample(metric, labels, valueNode ? 1 : 0);
+      return;
+    }
+    if (isNumericLike(valueNode)) {
+      emitSample(metric, labels, toNumber(valueNode));
+      return;
+    }
+    // strings or other primitives
+    labels.value = String(valueNode);
+    emitSample(metric, labels, 1);
+  };
+
   const walk = (node, path = []) => {
     if (node == null) return;
 
-    const baseName = path.map(toSnake).join('_');
-
     // primitives
     if (typeof node !== 'object') {
-      if (typeof node === 'boolean') {
-        emitSample(baseName, {}, node ? 1 : 0);
-        return;
-      }
-      if (isNumericLike(node)) {
-        emitSample(baseName, {}, toNumber(node));
-        return;
-      }
-      emitSample(baseName, { value: String(node) }, 1);
+      emitPrimitiveAtPath(path, {}, node);
       return;
     }
 
@@ -88,33 +107,20 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
           const rec = (obj, subPath, extraLabels) => {
             if (obj == null) return;
             if (typeof obj !== 'object') {
-              const name = [...path, ...subPath].map(toSnake).join('_');
-              if (typeof obj === 'boolean') {
-                emitSample(name, extraLabels, obj ? 1 : 0);
-              } else if (isNumericLike(obj)) {
-                emitSample(name, extraLabels, toNumber(obj));
-              } else {
-                emitSample(name, Object.assign({ value: String(obj) }, extraLabels), 1);
-              }
+              emitPrimitiveAtPath([...path, ...subPath], extraLabels, obj);
               return;
             }
             if (Array.isArray(obj)) {
               obj.forEach((v, i2) => {
+                if (v == null) return;
                 if (typeof v === 'object') {
                   rec(v, subPath, Object.assign({ index: String(i2) }, extraLabels));
-                } else if (v != null) {
-                  const name = [...path, ...subPath].map(toSnake).join('_');
-                  if (typeof v === 'boolean') {
-                    emitSample(name, Object.assign({ index: String(i2) }, extraLabels), v ? 1 : 0);
-                  } else if (isNumericLike(v)) {
-                    emitSample(name, Object.assign({ index: String(i2) }, extraLabels), toNumber(v));
-                  } else {
-                    emitSample(
-                      name,
-                      Object.assign({ index: String(i2), value: String(v) }, extraLabels),
-                      1
-                    );
-                  }
+                } else {
+                  emitPrimitiveAtPath(
+                    [...path, ...subPath],
+                    Object.assign({ index: String(i2) }, extraLabels),
+                    v
+                  );
                 }
               });
               return;
@@ -127,13 +133,7 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
           rec(el, [], { index: String(idx) });
         } else {
           // primitive array elements
-          if (typeof el === 'boolean') {
-            emitSample(baseName, { index: String(idx) }, el ? 1 : 0);
-          } else if (isNumericLike(el)) {
-            emitSample(baseName, { index: String(idx) }, toNumber(el));
-          } else {
-            emitSample(baseName, { index: String(idx), value: String(el) }, 1);
-          }
+          emitPrimitiveAtPath(path, { index: String(idx) }, el);
         }
       });
       return;
