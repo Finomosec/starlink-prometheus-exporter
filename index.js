@@ -2,11 +2,13 @@ const http = require('http');
 const { URL } = require('url');
 const { spawn, spawnSync } = require('child_process');
 const WebSocket = require('ws');
+const { jsonToPrometheus } = require('./helpers');
 
 const PORT = process.env.PORT || 8055;
 const DISHY_ADDRESS = process.env.DISHY_ADDRESS || 'http://192.168.100.1';
 const CDP_HOST = process.env.CDP_HOST || '127.0.0.1';
 const CDP_PORT = Number(process.env.CDP_PORT) || 9222;
+const METRICS_PREFIX = process.env.METRICS_PREFIX || 'starlink_';
 
 /**
  * Versucht eine lauffähige Chrome/Chromium-Binary zu finden.
@@ -352,8 +354,10 @@ const server = http.createServer(async (req, res) => {
 				);
 			}
 
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			return res.end(JSON.stringify(data, null, 2));
+			// Konvertiere JSON -> Prometheus-Text-Format (dynamisch)
+			res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
+			const body = jsonToPrometheus(data, METRICS_PREFIX);
+			return res.end(body);
 		} catch (e) {
 			console.error('CDP-Fehler:', e && e.message ? e.message : e);
 			res.writeHead(500, { 'Content-Type': 'application/json' });
