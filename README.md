@@ -1,12 +1,136 @@
 # Node.js Server (Express)
 
-Ein schlanker Express-Server mit:
-- Health-Endpoint (`GET /health`)
-- API-Namespace (`/api`)
-  - `POST /api/echo` (Echo-Endpoint für schnelle Tests)
-  - Optionaler Proxy unter `/api/proxy/**` (über PROXY_TARGET konfigurierbar)
+# Starlink Prometheus Exporter (Node.js)
 
-## Voraussetzungen
-- Node.js >= 18
+A lightweight Prometheus exporter that renders the Starlink Dishy web UI headlessly, extracts the JSON exposed in the page, and converts it dynamically into Prometheus metrics.
+
+The exporter keeps a persistent headless Chromium/Chrome process alive for fast scrapes after initialization. On each scrape it opens a temporary page (target), evaluates the DOM to read the JSON from the single `<div class="Json-Text">` element, closes the page again, and emits metrics.
+
+## Features
+
+- Headless rendering of the Dishy web UI (JS executed) to extract the visible JSON
+- Dynamic JSON → Prometheus metrics conversion
+  - Every metric gets the configured prefix
+  - The field `id` is attached as a label to every metric (not a metric itself)
+  - Strings are emitted as `<name>{value="..."} 1`
+  - Numbers are emitted as numeric values
+  - Booleans are emitted as 1/0
+  - Arrays emit one sample per element (primitive items as `{value="..."} 1`)
+  - Nested object names are concatenated in snake_case (e.g., `alerts_dish_is_heating`)
+  - All metrics are gauges; `# HELP` and `# TYPE` headers are emitted for each
+- Request timing added to the exported JSON as `exporter_request_ms` and exposed as a metric
+- Fast scrapes after startup thanks to a persistent headless browser
+- Health endpoint (`/health`)
+
+## Endpoints
+
+- `GET /metrics`  
+  Renders the Dishy page at `DISHY_ADDRESS`, extracts page JSON and exposes it as Prometheus metrics (text-format v0.0.4).
+- `GET /health`  
+  Simple health/status JSON.
+
+## Environment Variables
+
+| Variable        | Default               | Description                                                                 |
+|----------------|-----------------------|-----------------------------------------------------------------------------|
+| `PORT`         | `8055`                | HTTP listen port                                                            |
+| `DISHY_ADDRESS`| `http://192.168.100.1`| URL of the Dishy web UI                                                     |
+| `METRICS_PREFIX` | `starlink_`         | Prefix for all metric names                                                 |
+| `CHROME_BIN`   | auto-detect           | Path to Chromium/Chrome binary; if unset, common names are auto-detected   |
+| `CDP_HOST`     | `127.0.0.1`           | CDP (remote debugging) host for the headless browser                       |
+| `CDP_PORT`     | `9222`                | CDP (remote debugging) port for the headless browser                        |
+
+Notes:
+- A Chromium/Chrome browser must be available on the system. If auto-detection fails, set `CHROME_BIN` explicitly (e.g., `/usr/bin/chromium` or `/usr/bin/google-chrome`).
+- The exporter launches a persistent headless browser at startup and cleans it up on shutdown.
 
 ## Installation
+
+Prerequisites:
+- Node.js >= 18
+- Chromium or Google Chrome available on the system (set `CHROME_BIN` if auto-detection fails)
+
+Clone and install:
+
+~~~bash
+npm install
+npm start  # the exporter listens on http://localhost:8055/metrics by default
+~~~
+
+## Prometheus Scrape Config
+
+Add the following to your Prometheus configuration (e.g., /etc/prometheus/prometheus.yml):
+
+~~~yaml
+scrape_configs:
+  - job_name: "starlink"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["localhost:8055"]
+~~~
+
+Reload Prometheus to apply the changes:
+~~~bash
+sudo systemctl reload prometheus
+~~~
+
+## Run as a service (systemd, user unit)
+
+Save the following unit file as:
+~~~text
+~/.config/systemd/user/starlink-exporter.service
+~~~
+
+Adjust `WorkingDirectory` to your project path.  
+Set/adjust `Environment` variables as needed (see the table above).
+
+~~~ini
+[Unit]
+Description=Starlink Prometheus Exporter
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/services/starlink-prometheus-exporter
+# All params optional:
+# Environment=PORT=8055
+# Environment=DISHY_ADDRESS=http://192.168.100.1
+# Environment=METRICS_PREFIX=starlink_
+# Environment=CHROME_BIN=/usr/bin/chromium
+# Environment=CDP_HOST=127.0.0.1
+# Environment=CDP_PORT=9222
+# Or: EnvironmentFile=%h/.config/starlink-exporter/env
+ExecStart=/usr/bin/npm start --silent
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+~~~
+
+## Enable and start the service
+
+~~~bash
+# Reload user-level units
+systemctl --user daemon-reload
+
+# Enable autostart on login
+systemctl --user enable starlink-exporter
+
+# Start the exporter immediately
+systemctl --user start starlink-exporter
+~~~
+
+## Metrics and naming notes
+
+- All fields from the visible JSON in the Dishy web UI are dynamically converted to Prometheus metrics.
+- Prefix: All metrics start with the configured `METRICS_PREFIX` (default: `starlink_`).
+- id label: The `id` field is attached to every metric as a label (not emitted as its own metric).
+- Types:
+    - Numbers → numeric gauge values
+    - Booleans → 1/0
+    - Strings → `<name>{value="..."} 1`
+    - Arrays → one sample per element (primitive elements as `{value="..."} 1`)
+- Nesting: Nested object names are concatenated in snake_case (e.g., `alerts_dish_is_heating`).
+- Additional exporter metric: `exporter_request_ms` (duration per request in milliseconds).
+- Endpoints: `/metrics` (Prometheus text format), `/health` (simple health check).
