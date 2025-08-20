@@ -1,14 +1,15 @@
 'use strict';
 
 /**
- * Konvertiert ein JSON-Objekt dynamisch in Prometheus-Metriken (Text-Format).
- * - Alle Metriken bekommen den übergebenen Prefix.
- * - Das Feld "id" wird nicht als eigene Metrik emittiert, sondern als Label an alle Metriken angehängt (falls vorhanden).
- * - Strings werden als <name>{value="<string>"} 1 erfasst.
- * - Zahlen werden mit ihrem Zahlenwert erfasst.
- * - Boolean-Werte werden als 1/0 erfasst.
- * - Arrays erzeugen pro Element einen Eintrag (bei primitiven Elementen als {value="..."} 1).
- * - Verschachtelte Namen werden snake_case verkettet.
+ * Dynamically converts a JSON object into Prometheus metrics (text format).
+ * - All metrics receive the provided prefix.
+ * - The "id" field is not emitted as its own metric, but added as a label to every metric (if present).
+ * - String values are tracked as <name>{value="<string>"} 1.
+ * - Numeric values are tracked with their numeric value.
+ * - Boolean values are tracked as 1/0.
+ * - Arrays emit one sample per element (primitive elements as {value="..."} 1).
+ * - Nested object names are concatenated using snake_case.
+ * - Emits #TYPE (gauge) headers for each metric once.
  */
 function jsonToPrometheus(data, prefix = 'starlink_') {
   const idLabel = (data && data.id != null) ? String(data.id) : undefined;
@@ -16,9 +17,9 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
   const toSnake = (key) => {
     return String(key)
       .replace(/([a-z0-9])([A-Z])/g, '$1_$2')  // camelCase -> camel_case
-      .replace(/[^a-zA-Z0-9_]/g, '_')          // nur erlaubte Zeichen
-      .replace(/_{2,}/g, '_')                  // doppelte Unterstriche
-      .replace(/^_+|_+$/g, '')                 // Trim underscores
+      .replace(/[^a-zA-Z0-9_]/g, '_')          // allowed chars only
+      .replace(/_{2,}/g, '_')                  // collapse multiple underscores
+      .replace(/^_+|_+$/g, '')                 // trim underscores
       .toLowerCase();
   };
 
@@ -39,8 +40,17 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
     .replace(/\n/g, '\\n');
 
   const lines = [];
+  const emittedHeaders = new Set(); // track which metric headers were emitted
+
+  const ensureHeaders = (metricName) => {
+    const full = `${prefix}${metricName}`;
+    if (emittedHeaders.has(full)) return;
+    lines.push(`# TYPE ${full} gauge`);
+    emittedHeaders.add(full);
+  };
 
   const emitSample = (metricName, extraLabels, value) => {
+    ensureHeaders(metricName);
     const labels = Object.assign({}, extraLabels);
     if (idLabel !== undefined) labels.id = idLabel;
     const labelKeys = Object.keys(labels);
@@ -55,7 +65,7 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
 
     const baseName = path.map(toSnake).join('_');
 
-    // primitive Werte direkt ausgeben
+    // primitives
     if (typeof node !== 'object') {
       if (typeof node === 'boolean') {
         emitSample(baseName, {}, node ? 1 : 0);
@@ -69,12 +79,12 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
       return;
     }
 
-    // Arrays
+    // arrays
     if (Array.isArray(node)) {
       node.forEach((el, idx) => {
         if (el == null) return;
         if (typeof el === 'object') {
-          // Rekursiv für Objekt-Elemente; Index als Label hinzufügen
+          // recurse into object elements, add index label to descendants
           const rec = (obj, subPath, extraLabels) => {
             if (obj == null) return;
             if (typeof obj !== 'object') {
@@ -110,13 +120,13 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
               return;
             }
             for (const [k, v] of Object.entries(obj)) {
-              if (k === 'id') continue; // id nie als eigene Metrik
+              if (k === 'id') continue; // never emit id as its own metric
               rec(v, [...subPath, k], extraLabels);
             }
           };
           rec(el, [], { index: String(idx) });
         } else {
-          // Primitive Array-Elemente
+          // primitive array elements
           if (typeof el === 'boolean') {
             emitSample(baseName, { index: String(idx) }, el ? 1 : 0);
           } else if (isNumericLike(el)) {
@@ -129,7 +139,7 @@ function jsonToPrometheus(data, prefix = 'starlink_') {
       return;
     }
 
-    // Objekt
+    // object
     for (const [k, v] of Object.entries(node)) {
       if (k === 'id') continue;
       walk(v, [...path, k]);

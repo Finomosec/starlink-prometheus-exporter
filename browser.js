@@ -40,7 +40,7 @@ async function waitForCDPReady(timeoutMs = 10000) {
     } catch (_) {}
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error('CDP nicht erreichbar.');
+  throw new Error('CDP not reachable.');
 }
 
 function initBrowser({ host = '127.0.0.1', port = 9222 } = {}) {
@@ -50,7 +50,7 @@ function initBrowser({ host = '127.0.0.1', port = 9222 } = {}) {
   const CHROME_BIN = getChromeBin();
   if (!CHROME_BIN) {
     throw new Error(
-      'Keine Chrome/Chromium-Binary gefunden. Setze CHROME_BIN oder installiere chromium/google-chrome.'
+      'No Chrome/Chromium binary found. Set CHROME_BIN or install chromium/google-chrome.'
     );
   }
 
@@ -94,10 +94,10 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 8000 } = {}) 
   await (readyPromise || waitForCDPReady());
 
   const versionRes = await fetch(`http://${cdpHost}:${cdpPort}/json/version`);
-  if (!versionRes.ok) throw new Error(`CDP Version fehlgeschlagen: ${versionRes.status}`);
+  if (!versionRes.ok) throw new Error(`CDP version request failed: ${versionRes.status}`);
   const versionInfo = await versionRes.json();
   const browserWsUrl = versionInfo.webSocketDebuggerUrl;
-  if (!browserWsUrl) throw new Error('Browser WebSocket URL nicht gefunden.');
+  if (!browserWsUrl) throw new Error('Browser WebSocket URL not found.');
 
   const ws = new WebSocket(browserWsUrl);
   let nextId = 1;
@@ -129,7 +129,7 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 8000 } = {}) 
   };
 
   const onClose = () => {
-    for (const { reject } of inflight.values()) reject(new Error('Browser CDP WebSocket geschlossen.'));
+    for (const { reject } of inflight.values()) reject(new Error('Browser CDP WebSocket closed.'));
     inflight.clear();
   };
 
@@ -160,7 +160,7 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 8000 } = {}) 
  */
 async function cdpCreateTarget(url) {
   const { targetId } = await browserWsCommand('Target.createTarget', { url });
-  if (!targetId) throw new Error('Target.createTarget: keine targetId erhalten');
+  if (!targetId) throw new Error('Target.createTarget: did not receive targetId');
 
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
@@ -172,7 +172,7 @@ async function cdpCreateTarget(url) {
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('webSocketDebuggerUrl für neues Target nicht gefunden.');
+  throw new Error('webSocketDebuggerUrl for new target not found.');
 }
 
 /**
