@@ -144,14 +144,14 @@ systemctl --user start starlink-exporter
 
 ## Debugging
 
-Der Exporter startet einen headless Chrome-Browser mit aktiviertem Chrome DevTools Protocol (CDP). Sie können sich von localhost mit einem Chrome-Browser verbinden, um die Seite zu inspizieren:
+The exporter launches a headless Chrome browser with Chrome DevTools Protocol (CDP) enabled. You can connect from localhost using a Chrome browser to inspect the page:
 
-1. Stellen Sie sicher, dass der Exporter läuft
-2. Öffnen Sie Chrome und navigieren Sie zu:
+1. Make sure the exporter is running
+2. Open Chrome and navigate to:
    ~~~
    http://localhost:9222
    ~~~
-   (oder den in `CDP_PORT` konfigurierten Port)
-3. Klicken Sie auf die angezeigte Seite, um die Chrome DevTools zu öffnen
+   (or the port configured in `CDP_PORT`)
+3. Click on the displayed page to open Chrome DevTools
 
-**Hinweis:** Der CDP-Zugriff funktioniert nur von `localhost`. Dies ist eine Sicherheitsmaßnahme, da CDP vollen Zugriff auf den Browser ermöglicht.
+**Note:** CDP access only works from `localhost`. This is a security measure, as CDP provides full access to the browser.
