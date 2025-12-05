@@ -32,7 +32,7 @@ const server = http.createServer(async (req, res) => {
 			let data;
 			try {
 				data = await cdpExtractJsonFromTarget(webSocketDebuggerUrl, {
-					timeoutMs: Number(url.searchParams.get('timeoutMs')) || 10000,
+					timeoutMs: Number(url.searchParams.get('timeoutMs')) || 20000,
 					pollMs: Number(url.searchParams.get('pollMs')) || 200,
 				});
 			} finally {
