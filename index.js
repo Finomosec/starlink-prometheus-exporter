@@ -4,7 +4,7 @@ const { initBrowser, extractJsonFromPage } = require('./browser');
 const { jsonToPrometheus } = require('./helpers');
 
 const PORT = process.env.PORT || 8055;
-const DISHY_ADDRESS = process.env.DISHY_ADDRESS || 'http://dishy.starlink.com/';
+const DISHY_ADDRESS = process.env.DISHY_ADDRESS || 'http://192.168.100.1';
 const CDP_HOST = process.env.CDP_HOST || '127.0.0.1';
 const CDP_PORT = Number(process.env.CDP_PORT) || 9222;
 const METRICS_PREFIX = process.env.METRICS_PREFIX || 'starlink_';
