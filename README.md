@@ -4,7 +4,7 @@
 
 A lightweight Prometheus exporter that renders the Starlink Dishy web UI headlessly, extracts the JSON exposed in the page, and converts it dynamically into Prometheus metrics.
 
-The exporter keeps a persistent headless Chromium/Chrome process alive for fast scrapes after initialization. On each scrape it opens a temporary page (target), evaluates the DOM to read the JSON from the single `<div class="Json-Text">` element, closes the page again, and emits metrics.
+The exporter keeps a persistent headless Chromium/Chrome process alive for fast scrapes. The dishy status page is loaded and its updates are paused (using js debugger API). Only when a /metrics scrape request is being processed are updates resumed for a short moment. This saves network traffic and CPU time.
 
 ## Features
 
@@ -106,7 +106,7 @@ WorkingDirectory=%h/services/starlink-prometheus-exporter
 # Environment=CHROME_BIN=/usr/bin/chromium
 # Environment=CDP_HOST=127.0.0.1
 # Environment=CDP_PORT=9222
-# Or: EnvironmentFile=%h/.config/starlink-exporter/.env
+# Or: EnvironmentFile=%h/.config/starlink-exporter/env
 ExecStart=/usr/bin/npm start --silent
 Restart=on-failure
 RestartSec=10
