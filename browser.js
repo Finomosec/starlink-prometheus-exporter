@@ -58,7 +58,7 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
     );
   }
 
-  const userDataDir = `/tmp/dishy-chrome-${process.pid}`;
+  const userDataDir = process.env.CHROME_USER_DATA_DIR || `/tmp/dishy-chrome-${process.pid}`;
   const chromeArgs = [
     '--remote-debugging-address=0.0.0.0',
     `--remote-debugging-port=${cdpPort}`,
