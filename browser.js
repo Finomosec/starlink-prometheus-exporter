@@ -313,9 +313,8 @@ async function registerJsonChangeListener() {
         const args = msg.params?.args || [];
         if (args.length > 0 && args[0].value === '__JSON_CHANGED__') {
           changeEventCounter++;
-          if (onJsonChangeResolve && changeEventCounter >= 2) {
+          if (onJsonChangeResolve) {
             onJsonChangeResolve();
-            onJsonChangeResolve = null;
           }
         }
       }
@@ -349,23 +348,32 @@ async function registerJsonChangeListener() {
  * Reaktiviert Debugger, wartet auf 2 DOM-Changes, liest aus, pausiert Debugger wieder
  */
 async function extractJsonFromPage() {
-  // 1. Counter zurücksetzen und Debugger fortsetzen
-  changeEventCounter = 0;
+  // 1. Aktuellen Counter merken und Debugger fortsetzen
+  const initialCounter = changeEventCounter;
+  const targetCounter = initialCounter + 2;
   await sendToPersistent('Debugger.resume');
 
   // 2. Auf 2 DOM-Changes warten (max 10 Sekunden)
   await new Promise((resolve, reject) => {
-    onJsonChangeResolve = resolve;
     const timeout = setTimeout(() => {
       onJsonChangeResolve = null;
       reject(new Error('Timeout: Keine 2 DOM-Changes innerhalb 10 Sekunden'));
     }, 10000);
 
-    const originalResolve = resolve;
     onJsonChangeResolve = () => {
-      clearTimeout(timeout);
-      originalResolve();
+      if (changeEventCounter >= targetCounter) {
+        clearTimeout(timeout);
+        onJsonChangeResolve = null;
+        resolve();
+      }
     };
+
+    // Falls bereits genug Events da sind
+    if (changeEventCounter >= targetCounter) {
+      clearTimeout(timeout);
+      onJsonChangeResolve = null;
+      resolve();
+    }
   });
 
   // 3. JSON auslesen
