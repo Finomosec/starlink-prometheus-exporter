@@ -165,16 +165,21 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 15000 } = {})
  * CDP Target erstellen: per Browser-WS Target.createTarget und dann /json/list abfragen.
  */
 async function cdpCreateTarget(url) {
+  console.log(`[DEBUG] Creating target for URL: ${url}`);
   const { targetId } = await browserWsCommand('Target.createTarget', { url });
   if (!targetId) throw new Error('Target.createTarget: did not receive targetId');
+  console.log(`[DEBUG] Target created with ID: ${targetId}`);
 
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     const listRes = await fetch(`http://${cdpHost}:${cdpPort}/json/list`);
     if (listRes.ok) {
       const arr = await listRes.json();
       const found = arr.find((t) => t.id === targetId && t.webSocketDebuggerUrl);
-      if (found) return found;
+      if (found) {
+        console.log(`[DEBUG] Target ready with WebSocket URL: ${found.webSocketDebuggerUrl}`);
+        return found;
+      }
     }
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -228,9 +233,14 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 20000, pollMs = 200
     } catch (_) {}
   };
 
-  const onClose = () => {
+  const onClose = (code, reason) => {
+    console.log(`[DEBUG] Target WebSocket closed: code=${code}, reason=${reason}`);
     for (const { reject } of inflight.values()) reject(new Error('CDP WebSocket geschlossen.'));
     inflight.clear();
+  };
+
+  const onError = (err) => {
+    console.log(`[DEBUG] Target WebSocket error:`, err.message || err);
   };
 
   const openPromise = new Promise((resolve, reject) => {
@@ -240,15 +250,16 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 20000, pollMs = 200
 
   ws.on('message', onMessage);
   ws.on('close', onClose);
+  ws.on('error', onError);
 
   let timer;
   try {
     await openPromise;
+    console.log(`[DEBUG] Target WebSocket opened, readyState: ${ws.readyState}`);
 
-    // Timer erst NACH erfolgreichem Öffnen starten
-    timer = setTimeout(() => {
-      try { ws.close(); } catch (_) {}
-    }, timeoutMs);
+    // Kurze Wartezeit um sicherzustellen, dass die Verbindung stabil ist
+    await new Promise(r => setTimeout(r, 100));
+    console.log(`[DEBUG] After 100ms wait, readyState: ${ws.readyState}`);
 
     await send('Runtime.enable');
     await send('Page.enable');
@@ -283,9 +294,10 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 20000, pollMs = 200
       };
     })()`;
 
+    // Separate Timeout-Logik: Wir setzen ein End-Datum aber schließen WebSocket nicht automatisch
     const end = Date.now() + timeoutMs;
     let lastDebugInfo = null;
-    while (Date.now() < end) {
+    while (Date.now() < end && ws.readyState === WebSocket.OPEN) {
       const res = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
       const debugInfo = res && res.result && res.result.value ? res.result.value : {};
       lastDebugInfo = debugInfo;
@@ -308,12 +320,15 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 20000, pollMs = 200
       await new Promise((r) => setTimeout(r, pollMs));
     }
 
+    if (ws.readyState !== WebSocket.OPEN) {
+      throw new Error(`WebSocket closed during polling. Last readyState: ${ws.readyState}`);
+    }
+
     const errorMsg = lastDebugInfo
       ? `No .Json-Text found: element=${lastDebugInfo.found}, textLength=${lastDebugInfo.textContent?.length || 0}, htmlLength=${lastDebugInfo.innerHTML?.length || 0}, bodyLength=${lastDebugInfo.bodyLength}, elements=${lastDebugInfo.allJsonTextElements}`
       : 'Timeout: JSON nicht gefunden.';
     throw new Error(errorMsg);
   } finally {
-    if (timer) clearTimeout(timer);
     try { ws.close(); } catch (_) {}
   }
 }
