@@ -106,7 +106,7 @@ WorkingDirectory=%h/services/starlink-prometheus-exporter
 # Environment=CHROME_BIN=/usr/bin/chromium
 # Environment=CDP_HOST=127.0.0.1
 # Environment=CDP_PORT=9222
-# Or: EnvironmentFile=%h/.config/starlink-exporter/env
+# Or: EnvironmentFile=%h/.config/starlink-exporter/.env
 ExecStart=/usr/bin/npm start --silent
 Restart=on-failure
 RestartSec=10
