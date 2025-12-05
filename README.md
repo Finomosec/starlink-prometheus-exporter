@@ -79,6 +79,7 @@ starlink_exporter_request_ms{id="ut12345678-12f3456c-d1e23456"} 226
 | `DISHY_ADDRESS`| `http://192.168.100.1`| URL of the Dishy web UI                                                     |
 | `METRICS_PREFIX` | `starlink_`         | Prefix for all metric names                                                 |
 | `CHROME_BIN`   | auto-detect           | Path to Chromium/Chrome binary; if unset, common names are auto-detected   |
+| `CHROME_USER_DATA_DIR` | `/tmp/dishy-chrome-{pid}` | Chrome user data directory for persistent browser state       |
 | `CDP_HOST`     | `127.0.0.1`           | CDP (remote debugging) host for the headless browser                       |
 | `CDP_PORT`     | `9222`                | CDP (remote debugging) port for the headless browser                        |
 
@@ -141,6 +142,7 @@ WorkingDirectory=%h/services/starlink-prometheus-exporter
 # Environment=DISHY_ADDRESS=http://192.168.100.1
 # Environment=METRICS_PREFIX=starlink_
 # Environment=CHROME_BIN=/usr/bin/chromium
+# Environment=CHROME_USER_DATA_DIR=/tmp/chrome-starlink
 # Environment=CDP_HOST=127.0.0.1
 # Environment=CDP_PORT=9222
 # Or: EnvironmentFile=%h/.config/starlink-exporter/env
