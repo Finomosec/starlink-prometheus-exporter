@@ -161,7 +161,6 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
 
   // Pausiere Debugger
   await sendToPersistent('Debugger.pause');
-  await sendToPersistent('Runtime.evaluate', { expression: '1+1', returnByValue: true });
   console.log('[Browser] Debugger pausiert, bereit für /metrics Requests.');
 }
 
@@ -378,7 +377,6 @@ async function extractJsonFromPage() {
 
   // 4. Debugger wieder pausieren
   await sendToPersistent('Debugger.pause');
-  await sendToPersistent('Runtime.evaluate', { expression: '1+1', returnByValue: true });
 
   if (!res || !res.result || !res.result.value) {
     throw new Error('Kein .Json-Text Element gefunden.');
