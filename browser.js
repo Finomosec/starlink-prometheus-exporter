@@ -58,7 +58,7 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
     );
   }
 
-  const userDataDir = `/tmp/dishy-chrome-${process.pid}`;
+  const userDataDir = `$HOME/Projects/starlink-prometheus-exporter`;
   const chromeArgs = [
     `--remote-debugging-port=${cdpPort}`,
     '--remote-debugging-address=0.0.0.0',
