@@ -90,7 +90,7 @@ function initBrowser({ host = '127.0.0.1', port = 9222 } = {}) {
 /**
  * Führt einen CDP-Befehl auf dem Browser-WebSocket aus und liefert das result zurück.
  */
-async function browserWsCommand(method, params = {}, { timeoutMs = 8000 } = {}) {
+async function browserWsCommand(method, params = {}, { timeoutMs = 15000 } = {}) {
   await (readyPromise || waitForCDPReady());
 
   const versionRes = await fetch(`http://${cdpHost}:${cdpPort}/json/version`);
@@ -107,6 +107,9 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 8000 } = {}) 
     const id = nextId++;
     const msg = { id, method: cmd, params: args };
     return new Promise((resolve, reject) => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        return reject(new Error(`WebSocket not open: readyState ${ws.readyState}`));
+      }
       inflight.set(id, { resolve, reject });
       ws.send(JSON.stringify(msg), (err) => {
         if (err) {
@@ -135,22 +138,25 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 8000 } = {}) 
 
   const openPromise = new Promise((resolve, reject) => {
     ws.once('open', resolve);
-    ws.once('error', reject);
+    ws.once('error', (err) => reject(new Error(`WebSocket connection failed: ${err.message}`)));
   });
-
-  const timer = setTimeout(() => {
-    try { ws.close(); } catch (_) {}
-  }, timeoutMs);
 
   ws.on('message', onMessage);
   ws.on('close', onClose);
 
+  let timer;
   try {
     await openPromise;
+
+    // Timer erst NACH erfolgreichem Öffnen starten
+    timer = setTimeout(() => {
+      try { ws.close(); } catch (_) {}
+    }, timeoutMs);
+
     const result = await send(method, params);
     return result;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     try { ws.close(); } catch (_) {}
   }
 }
@@ -189,7 +195,7 @@ async function cdpCloseTarget(id) {
 /**
  * Aus dem Target über CDP den Text aus <div class="Json-Text"> lesen, bis vorhanden.
  */
-async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 10000, pollMs = 200 } = {}) {
+async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 20000, pollMs = 200 } = {}) {
   const ws = new WebSocket(wsUrl);
   let nextId = 1;
   const inflight = new Map();
@@ -198,6 +204,9 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 10000, pollMs = 200
     const id = nextId++;
     const msg = { id, method, params };
     return new Promise((resolve, reject) => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        return reject(new Error(`WebSocket not open: readyState ${ws.readyState}`));
+      }
       inflight.set(id, { resolve, reject });
       ws.send(JSON.stringify(msg), (err) => {
         if (err) {
@@ -226,18 +235,21 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 10000, pollMs = 200
 
   const openPromise = new Promise((resolve, reject) => {
     ws.once('open', resolve);
-    ws.once('error', reject);
+    ws.once('error', (err) => reject(new Error(`WebSocket connection failed: ${err.message}`)));
   });
 
   ws.on('message', onMessage);
   ws.on('close', onClose);
 
-  const timer = setTimeout(() => {
-    try { ws.close(); } catch (_) {}
-  }, timeoutMs);
-
+  let timer;
   try {
     await openPromise;
+
+    // Timer erst NACH erfolgreichem Öffnen starten
+    timer = setTimeout(() => {
+      try { ws.close(); } catch (_) {}
+    }, timeoutMs);
+
     await send('Runtime.enable');
     await send('Page.enable');
 
@@ -256,8 +268,8 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 10000, pollMs = 200
       });
     });
 
-    // Warte max 5s auf Load-Event
-    await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 5000))]);
+    // Warte max 10s auf Load-Event
+    await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 10000))]);
     console.log(`[DEBUG] Page load event fired: ${loadFired}`);
 
     const expr = `(function(){
@@ -301,7 +313,7 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 10000, pollMs = 200
       : 'Timeout: JSON nicht gefunden.';
     throw new Error(errorMsg);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     try { ws.close(); } catch (_) {}
   }
 }
