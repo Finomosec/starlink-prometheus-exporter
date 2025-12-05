@@ -25,6 +25,43 @@ The exporter keeps a persistent headless Chromium/Chrome process alive for fast 
 - This exporter should work with any (current or future) version of Starlink Dishy
   - ...as long as the Dishy web UI exposes the JSON data in the `<div class="Json-Text">` element
 
+## Example Metrics
+
+```
+# TYPE starlink_hardware_version gauge
+starlink_hardware_version{value="rev4_panda_prod2",id="ut12345678-12f3456c-d1e23456"} 1
+# TYPE starlink_software_version gauge
+starlink_software_version{value="2025.11.16.mr67914",id="ut12345678-12f3456c-d1e23456"} 1
+# TYPE starlink_utc_offset_s gauge
+starlink_utc_offset_s{id="ut12345678-12f3456c-d1e23456"} 0
+# TYPE starlink_hardware_self_test gauge
+starlink_hardware_self_test{value="PASSED",id="ut12345678-12f3456c-d1e23456"} 1
+# TYPE starlink_hardware_self_test_codes_list gauge
+starlink_hardware_self_test_codes_list{value="none",id="ut12345678-12f3456c-d1e23456"} 1
+# TYPE starlink_alerts gauge
+starlink_alerts{name="dish_is_heating",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="dish_thermal_throttle",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="dish_thermal_shutdown",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="power_supply_thermal_throttle",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="motors_stuck",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="mast_not_near_vertical",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="slow_ethernet_speeds",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="software_install_pending",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="moving_too_fast_for_policy",id="ut12345678-12f3456c-d1e23456"} 0
+starlink_alerts{name="obstructed",id="ut12345678-12f3456c-d1e23456"} 0
+# TYPE starlink_disablement_code gauge
+starlink_disablement_code{value="OKAY",id="ut12345678-12f3456c-d1e23456"} 1
+# TYPE starlink_alignment_stats gauge
+starlink_alignment_stats{name="boresight_azimuth_deg",id="ut12345678-12f3456c-d1e23456"} -15.91
+starlink_alignment_stats{name="boresight_elevation_deg",id="ut12345678-12f3456c-d1e23456"} 84.03
+starlink_alignment_stats{name="desired_boresight_azimuth_deg",id="ut12345678-12f3456c-d1e23456"} -34.89
+starlink_alignment_stats{name="desired_boresight_elevation_deg",id="ut12345678-12f3456c-d1e23456"} 69.96
+# TYPE starlink_stowed gauge
+starlink_stowed{id="ut12345678-12f3456c-d1e23456"} 0
+# TYPE starlink_exporter_request_ms gauge
+starlink_exporter_request_ms{id="ut12345678-12f3456c-d1e23456"} 226
+```
+
 ## Endpoints
 
 - `GET /`  
@@ -154,4 +191,4 @@ The exporter launches a headless Chrome browser with Chrome DevTools Protocol (C
    (or the port configured in `CDP_PORT`)
 3. Click on the displayed page to open Chrome DevTools
 
-**Note:** CDP access only works from `localhost`. This is a security measure, as CDP provides full access to the browser.
+**Note:** CDP access only works from `localhost`. This is a chrome security measure, as CDP provides full access to the browser.
