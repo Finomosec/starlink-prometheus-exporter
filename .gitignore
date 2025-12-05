@@ -1,3 +1,4 @@
 /.idea/
 chrome
 /node_modules/
+.env
