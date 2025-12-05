@@ -14,6 +14,7 @@ let nextId = 1;
 const inflight = new Map();
 let changeListenerRegistered = false;
 let onJsonChangeResolve = null;
+let changeEventCounter = 0;
 
 function getChromeBin() {
   const candidates = [
@@ -132,6 +133,7 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
 
   await sendToPersistent('Runtime.enable');
   await sendToPersistent('Page.enable');
+  await sendToPersistent('Debugger.enable');
 
   // Warte auf Seitenladung
   const loadPromise = new Promise((resolve) => {
@@ -157,10 +159,10 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
   // Registriere DOM-Change-Listener einmalig
   await registerJsonChangeListener();
 
-  // Pausiere Scripts
-  // await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
-  // console.log('[Browser] Scripts pausiert, bereit für /metrics Requests.');
-  console.log('[Browser] Bereit für /metrics Requests.');
+  // Pausiere Debugger
+  await sendToPersistent('Debugger.pause');
+  await sendToPersistent('Runtime.evaluate', { expression: '1+1', returnByValue: true });
+  console.log('[Browser] Debugger pausiert, bereit für /metrics Requests.');
 }
 
 /**
@@ -310,7 +312,8 @@ async function registerJsonChangeListener() {
       if (msg.method === 'Runtime.consoleAPICalled') {
         const args = msg.params?.args || [];
         if (args.length > 0 && args[0].value === '__JSON_CHANGED__') {
-          if (onJsonChangeResolve) {
+          changeEventCounter++;
+          if (onJsonChangeResolve && changeEventCounter >= 2) {
             onJsonChangeResolve();
             onJsonChangeResolve = null;
           }
@@ -343,19 +346,20 @@ async function registerJsonChangeListener() {
 
 /**
  * Liest JSON aus der bereits geöffneten Seite aus <div class="Json-Text">
- * Reaktiviert Scripts, wartet auf DOM-Change, liest aus, pausiert Scripts wieder
+ * Reaktiviert Debugger, wartet auf 2 DOM-Changes, liest aus, pausiert Debugger wieder
  */
 async function extractJsonFromPage() {
-  // 1. Scripts reaktivieren
-  // await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: false });
+  // 1. Counter zurücksetzen und Debugger fortsetzen
+  changeEventCounter = 0;
+  await sendToPersistent('Debugger.resume');
 
-  // 2. Auf DOM-Change warten (max 5 Sekunden)
+  // 2. Auf 2 DOM-Changes warten (max 10 Sekunden)
   await new Promise((resolve, reject) => {
     onJsonChangeResolve = resolve;
     const timeout = setTimeout(() => {
       onJsonChangeResolve = null;
-      reject(new Error('Timeout: Kein DOM-Change innerhalb 5 Sekunden'));
-    }, 5000);
+      reject(new Error('Timeout: Keine 2 DOM-Changes innerhalb 10 Sekunden'));
+    }, 10000);
 
     const originalResolve = resolve;
     onJsonChangeResolve = () => {
@@ -372,8 +376,9 @@ async function extractJsonFromPage() {
 
   const res = await sendToPersistent('Runtime.evaluate', { expression: expr, returnByValue: true });
 
-  // 4. Scripts wieder pausieren
-  // await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
+  // 4. Debugger wieder pausieren
+  await sendToPersistent('Debugger.pause');
+  await sendToPersistent('Runtime.evaluate', { expression: '1+1', returnByValue: true });
 
   if (!res || !res.result || !res.result.value) {
     throw new Error('Kein .Json-Text Element gefunden.');
