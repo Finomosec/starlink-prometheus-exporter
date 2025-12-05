@@ -47,7 +47,7 @@ async function waitForCDPReady(timeoutMs = 10000) {
   throw new Error('CDP not reachable.');
 }
 
-async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http://dishy.starlink.com/' } = {}) {
+async function initBrowser({ host = '0.0.0.0', port = 9222, dishyUrl = 'http://dishy.starlink.com/' } = {}) {
   cdpHost = host;
   cdpPort = port;
 
@@ -58,7 +58,7 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
     );
   }
 
-  const userDataDir = `$HOME/Projects/starlink-prometheus-exporter`;
+  const userDataDir = `/tmp/dishy-chrome-${process.pid}`;
   const chromeArgs = [
     `--remote-debugging-port=${cdpPort}`,
     '--remote-debugging-address=0.0.0.0',
