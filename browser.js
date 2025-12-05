@@ -161,7 +161,9 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
 
   await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 15000))]);
 
-  // Initialisierung wird jetzt über Page-Load-Listener getriggert
+  // Manueller Trigger für initialen Load (Event wurde bereits gefeuert)
+  await initializePageListener();
+
   console.log('[Browser] Browser bereit.');
 }
 
