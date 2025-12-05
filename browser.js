@@ -135,7 +135,17 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
   await sendToPersistent('Page.enable');
   await sendToPersistent('Debugger.enable');
 
-  // Warte auf Seitenladung
+  // Permanenter Page-Load-Listener: triggert Initialisierung bei jedem Page-Load
+  persistentWs.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.method === 'Page.loadEventFired') {
+        initializePageListener();
+      }
+    } catch (_) {}
+  });
+
+  // Warte auf ersten Page-Load
   const loadPromise = new Promise((resolve) => {
     const handler = (data) => {
       try {
@@ -150,19 +160,9 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
   });
 
   await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 15000))]);
-  console.log('[Browser] Seite geladen, warte auf JSON...');
 
-  // Warte bis JSON einmal gefunden wird
-  await waitForJsonElement();
-  console.log('[Browser] JSON gefunden, registriere Change-Listener...');
-
-  // Registriere DOM-Change-Listener einmalig
-  changeEventCounter = 0;
-  await registerJsonChangeListener();
-
-  // Pausiere Debugger
-  await sendToPersistent('Debugger.pause');
-  console.log('[Browser] Debugger pausiert, bereit für /metrics Requests.');
+  // Initialisierung wird jetzt über Page-Load-Listener getriggert
+  console.log('[Browser] Browser bereit.');
 }
 
 /**
@@ -294,6 +294,27 @@ async function waitForJsonElement(maxWaitMs = 10000) {
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error('JSON-Element nicht gefunden nach ' + maxWaitMs + 'ms');
+}
+
+/**
+ * Führt Initialisierung nach Page-Load aus:
+ * Wartet auf JSON-Element, registriert Change-Listener, pausiert Debugger
+ */
+async function initializePageListener() {
+  try {
+    console.log('[Browser] Page geladen, warte auf JSON...');
+    await waitForJsonElement();
+    console.log('[Browser] JSON gefunden, registriere Change-Listener...');
+
+    changeEventCounter = 0;
+    changeListenerRegistered = false; // Reset für Neuregistrierung
+    await registerJsonChangeListener();
+
+    await sendToPersistent('Debugger.pause');
+    console.log('[Browser] Debugger pausiert, bereit für Metrics.');
+  } catch (err) {
+    console.error('[Browser] Fehler bei Page-Initialisierung:', err.message);
+  }
 }
 
 /**
