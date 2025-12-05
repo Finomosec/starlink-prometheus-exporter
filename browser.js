@@ -239,21 +239,55 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 10000, pollMs = 200
   try {
     await openPromise;
     await send('Runtime.enable');
+    await send('Page.enable');
+
+    // Warte auf Page.loadEventFired
+    let loadFired = false;
+    const loadPromise = new Promise((resolve) => {
+      const originalOnMessage = ws.listeners('message')[0];
+      ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data);
+          if (msg.method === 'Page.loadEventFired') {
+            loadFired = true;
+            resolve();
+          }
+        } catch (_) {}
+      });
+    });
+
+    // Warte max 5s auf Load-Event
+    await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 5000))]);
+    console.log(`[DEBUG] Page load event fired: ${loadFired}`);
 
     const expr = `(function(){
       const el = document.querySelector('.Json-Text');
-      return el ? el.textContent : '';
+      return {
+        found: !!el,
+        textContent: el ? el.textContent : null,
+        innerHTML: el ? el.innerHTML : null,
+        bodyLength: document.body ? document.body.innerHTML.length : 0,
+        allJsonTextElements: document.querySelectorAll('.Json-Text').length
+      };
     })()`;
 
     const end = Date.now() + timeoutMs;
+    let lastDebugInfo = null;
     while (Date.now() < end) {
       const res = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
-      const text = res && res.result && res.result.value ? String(res.result.value).trim() : '';
-      if (text) {
+      const debugInfo = res && res.result && res.result.value ? res.result.value : {};
+      lastDebugInfo = debugInfo;
+
+      console.log(`[DEBUG] Element found: ${debugInfo.found}, textContent length: ${debugInfo.textContent?.length || 0}, innerHTML length: ${debugInfo.innerHTML?.length || 0}, body length: ${debugInfo.bodyLength}, .Json-Text elements: ${debugInfo.allJsonTextElements}`);
+
+      const text = debugInfo.textContent || debugInfo.innerHTML || '';
+      const trimmed = String(text).trim();
+
+      if (trimmed) {
         try {
-          return JSON.parse(text);
+          return JSON.parse(trimmed);
         } catch {
-          const m = text.match(/\{[\s\S]*\}$/);
+          const m = trimmed.match(/\{[\s\S]*\}$/);
           if (m) {
             try { return JSON.parse(m[0]); } catch (_) {}
           }
@@ -261,7 +295,11 @@ async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 10000, pollMs = 200
       }
       await new Promise((r) => setTimeout(r, pollMs));
     }
-    throw new Error('Timeout: JSON nicht gefunden.');
+
+    const errorMsg = lastDebugInfo
+      ? `No .Json-Text found: element=${lastDebugInfo.found}, textLength=${lastDebugInfo.textContent?.length || 0}, htmlLength=${lastDebugInfo.innerHTML?.length || 0}, bodyLength=${lastDebugInfo.bodyLength}, elements=${lastDebugInfo.allJsonTextElements}`
+      : 'Timeout: JSON nicht gefunden.';
+    throw new Error(errorMsg);
   } finally {
     clearTimeout(timer);
     try { ws.close(); } catch (_) {}
@@ -274,3 +312,4 @@ module.exports = {
   cdpCloseTarget,
   cdpExtractJsonFromTarget
 };
+
