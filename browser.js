@@ -12,6 +12,8 @@ let persistentWs = null;
 let persistentTarget = null;
 let nextId = 1;
 const inflight = new Map();
+let changeListenerRegistered = false;
+let onJsonChangeResolve = null;
 
 function getChromeBin() {
   const candidates = [
@@ -146,7 +148,18 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
   });
 
   await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 15000))]);
-  console.log('[Browser] Seite geladen und bereit.');
+  console.log('[Browser] Seite geladen, warte auf JSON...');
+
+  // Warte bis JSON einmal gefunden wird
+  await waitForJsonElement();
+  console.log('[Browser] JSON gefunden, registriere Change-Listener...');
+
+  // Registriere DOM-Change-Listener einmalig
+  await registerJsonChangeListener();
+
+  // Pausiere Scripts
+  await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
+  console.log('[Browser] Scripts pausiert, bereit für /metrics Requests.');
 }
 
 /**
@@ -262,15 +275,104 @@ async function cdpCreateTarget(url) {
 
 
 /**
+ * Wartet bis .Json-Text Element existiert und Inhalt hat
+ */
+async function waitForJsonElement(maxWaitMs = 10000) {
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    const expr = `(function(){
+      const el = document.querySelector('.Json-Text');
+      return el && (el.textContent || el.innerHTML) ? true : false;
+    })()`;
+    const res = await sendToPersistent('Runtime.evaluate', { expression: expr, returnByValue: true });
+    if (res?.result?.value === true) {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error('JSON-Element nicht gefunden nach ' + maxWaitMs + 'ms');
+}
+
+/**
+ * Registriert einen MutationObserver auf .Json-Text Element (einmalig)
+ */
+async function registerJsonChangeListener() {
+  if (changeListenerRegistered) {
+    console.log('[Browser] Change-Listener bereits registriert.');
+    return;
+  }
+
+  // Event-Handler für Runtime.consoleAPICalled registrieren
+  persistentWs.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.method === 'Runtime.consoleAPICalled') {
+        const args = msg.params?.args || [];
+        if (args.length > 0 && args[0].value === '__JSON_CHANGED__') {
+          if (onJsonChangeResolve) {
+            onJsonChangeResolve();
+            onJsonChangeResolve = null;
+          }
+        }
+      }
+    } catch (_) {}
+  });
+
+  await sendToPersistent('Runtime.enable');
+
+  const observerScript = `
+    (function() {
+      const target = document.querySelector('.Json-Text');
+      if (!target) {
+        console.log('__JSON_OBSERVER_ERROR__');
+        return;
+      }
+      const observer = new MutationObserver(() => {
+        console.log('__JSON_CHANGED__');
+      });
+      observer.observe(target, { childList: true, characterData: true, subtree: true });
+      console.log('__JSON_OBSERVER_REGISTERED__');
+    })();
+  `;
+
+  await sendToPersistent('Runtime.evaluate', { expression: observerScript });
+  changeListenerRegistered = true;
+  console.log('[Browser] MutationObserver auf .Json-Text registriert.');
+}
+
+/**
  * Liest JSON aus der bereits geöffneten Seite aus <div class="Json-Text">
+ * Reaktiviert Scripts, wartet auf DOM-Change, liest aus, pausiert Scripts wieder
  */
 async function extractJsonFromPage() {
+  // 1. Scripts reaktivieren
+  await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: false });
+
+  // 2. Auf DOM-Change warten (max 5 Sekunden)
+  await new Promise((resolve, reject) => {
+    onJsonChangeResolve = resolve;
+    const timeout = setTimeout(() => {
+      onJsonChangeResolve = null;
+      reject(new Error('Timeout: Kein DOM-Change innerhalb 5 Sekunden'));
+    }, 5000);
+
+    const originalResolve = resolve;
+    onJsonChangeResolve = () => {
+      clearTimeout(timeout);
+      originalResolve();
+    };
+  });
+
+  // 3. JSON auslesen
   const expr = `(function(){
     const el = document.querySelector('.Json-Text');
     return el ? el.textContent || el.innerHTML : null;
   })()`;
 
   const res = await sendToPersistent('Runtime.evaluate', { expression: expr, returnByValue: true });
+
+  // 4. Scripts wieder pausieren
+  await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
 
   if (!res || !res.result || !res.result.value) {
     throw new Error('Kein .Json-Text Element gefunden.');
