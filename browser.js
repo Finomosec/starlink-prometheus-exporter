@@ -158,8 +158,9 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
   await registerJsonChangeListener();
 
   // Pausiere Scripts
-  await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
-  console.log('[Browser] Scripts pausiert, bereit für /metrics Requests.');
+  // await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
+  // console.log('[Browser] Scripts pausiert, bereit für /metrics Requests.');
+  console.log('[Browser] Bereit für /metrics Requests.');
 }
 
 /**
@@ -346,7 +347,7 @@ async function registerJsonChangeListener() {
  */
 async function extractJsonFromPage() {
   // 1. Scripts reaktivieren
-  await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: false });
+  // await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: false });
 
   // 2. Auf DOM-Change warten (max 5 Sekunden)
   await new Promise((resolve, reject) => {
@@ -372,7 +373,7 @@ async function extractJsonFromPage() {
   const res = await sendToPersistent('Runtime.evaluate', { expression: expr, returnByValue: true });
 
   // 4. Scripts wieder pausieren
-  await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
+  // await sendToPersistent('Emulation.setScriptExecutionDisabled', { value: true });
 
   if (!res || !res.result || !res.result.value) {
     throw new Error('Kein .Json-Text Element gefunden.');
