@@ -98,8 +98,8 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
   await readyPromise;
 
   // Persistente Seite laden
-  console.log('[Browser] Erstelle persistentes Target für:', dishyUrl);
-  persistentTarget = await cdpCreateTarget(dishyUrl);
+  console.log('[Browser] Erstelle persistentes Target (about:blank)');
+  persistentTarget = await cdpCreateTarget('about:blank');
 
   // Persistente WebSocket-Verbindung öffnen
   persistentWs = new WebSocket(persistentTarget.webSocketDebuggerUrl);
@@ -159,10 +159,11 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
     persistentWs.on('message', handler);
   });
 
-  await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 15000))]);
+  // Jetzt zur Starlink-URL navigieren
+  console.log('[Browser] Navigiere zu:', dishyUrl);
+  await sendToPersistent('Page.navigate', { url: dishyUrl });
 
-  // Manueller Trigger für initialen Load (Event wurde bereits gefeuert)
-  await initializePageListener();
+  await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 15000))]);
 
   console.log('[Browser] Browser bereit.');
 }
