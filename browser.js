@@ -8,6 +8,10 @@ let cdpHost = '127.0.0.1';
 let cdpPort = 9222;
 let chromeProc = null;
 let readyPromise = null;
+let persistentWs = null;
+let persistentTarget = null;
+let nextId = 1;
+const inflight = new Map();
 
 function getChromeBin() {
   const candidates = [
@@ -43,7 +47,7 @@ async function waitForCDPReady(timeoutMs = 10000) {
   throw new Error('CDP not reachable.');
 }
 
-function initBrowser({ host = '127.0.0.1', port = 9222 } = {}) {
+async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http://dishy.starlink.com/' } = {}) {
   cdpHost = host;
   cdpPort = port;
 
@@ -75,6 +79,9 @@ function initBrowser({ host = '127.0.0.1', port = 9222 } = {}) {
   chromeProc = spawn(CHROME_BIN, chromeArgs, { stdio: ['ignore', 'ignore', 'inherit'] });
 
   const cleanup = () => {
+    if (persistentWs) {
+      try { persistentWs.close(); } catch (_) {}
+    }
     if (chromeProc && !chromeProc.killed) {
       try { chromeProc.kill('SIGKILL'); } catch (_) {}
     }
@@ -84,13 +91,87 @@ function initBrowser({ host = '127.0.0.1', port = 9222 } = {}) {
   process.on('SIGTERM', () => { cleanup(); process.exit(0); });
 
   readyPromise = waitForCDPReady();
-  return readyPromise;
+  await readyPromise;
+
+  // Persistente Seite laden
+  console.log('[Browser] Erstelle persistentes Target für:', dishyUrl);
+  persistentTarget = await cdpCreateTarget(dishyUrl);
+
+  // Persistente WebSocket-Verbindung öffnen
+  persistentWs = new WebSocket(persistentTarget.webSocketDebuggerUrl);
+
+  const openPromise = new Promise((resolve, reject) => {
+    persistentWs.once('open', resolve);
+    persistentWs.once('error', reject);
+  });
+
+  persistentWs.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.id && inflight.has(msg.id)) {
+        const { resolve } = inflight.get(msg.id);
+        inflight.delete(msg.id);
+        resolve(msg.result);
+      }
+    } catch (_) {}
+  });
+
+  persistentWs.on('close', () => {
+    console.log('[Browser] Persistente WebSocket geschlossen.');
+    for (const { reject } of inflight.values()) {
+      reject(new Error('Persistente WebSocket geschlossen.'));
+    }
+    inflight.clear();
+  });
+
+  await openPromise;
+  console.log('[Browser] WebSocket geöffnet, aktiviere Runtime...');
+
+  await sendToPersistent('Runtime.enable');
+  await sendToPersistent('Page.enable');
+
+  // Warte auf Seitenladung
+  const loadPromise = new Promise((resolve) => {
+    const handler = (data) => {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.method === 'Page.loadEventFired') {
+          persistentWs.off('message', handler);
+          resolve();
+        }
+      } catch (_) {}
+    };
+    persistentWs.on('message', handler);
+  });
+
+  await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 15000))]);
+  console.log('[Browser] Seite geladen und bereit.');
 }
 
 /**
- * Führt einen CDP-Befehl auf dem Browser-WebSocket aus und liefert das result zurück.
+ * Sendet einen CDP-Befehl an die persistente WebSocket-Verbindung
  */
-async function browserWsCommand(method, params = {}, { timeoutMs = 15000 } = {}) {
+function sendToPersistent(method, params = {}) {
+  const id = nextId++;
+  const msg = { id, method, params };
+  return new Promise((resolve, reject) => {
+    if (!persistentWs || persistentWs.readyState !== WebSocket.OPEN) {
+      return reject(new Error(`Persistente WebSocket nicht bereit: readyState ${persistentWs?.readyState}`));
+    }
+    inflight.set(id, { resolve, reject });
+    persistentWs.send(JSON.stringify(msg), (err) => {
+      if (err) {
+        inflight.delete(id);
+        reject(err);
+      }
+    });
+  });
+}
+
+/**
+ * Führt einen CDP-Befehl auf dem Browser-WebSocket aus (für Target.createTarget)
+ */
+async function browserWsCommand(method, params = {}) {
   await (readyPromise || waitForCDPReady());
 
   const versionRes = await fetch(`http://${cdpHost}:${cdpPort}/json/version`);
@@ -100,20 +181,20 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 15000 } = {})
   if (!browserWsUrl) throw new Error('Browser WebSocket URL not found.');
 
   const ws = new WebSocket(browserWsUrl);
-  let nextId = 1;
-  const inflight = new Map();
+  let cmdId = 1;
+  const cmdInflight = new Map();
 
   function send(cmd, args = {}) {
-    const id = nextId++;
+    const id = cmdId++;
     const msg = { id, method: cmd, params: args };
     return new Promise((resolve, reject) => {
       if (ws.readyState !== WebSocket.OPEN) {
         return reject(new Error(`WebSocket not open: readyState ${ws.readyState}`));
       }
-      inflight.set(id, { resolve, reject });
+      cmdInflight.set(id, { resolve, reject });
       ws.send(JSON.stringify(msg), (err) => {
         if (err) {
-          inflight.delete(id);
+          cmdInflight.delete(id);
           reject(err);
         }
       });
@@ -123,17 +204,17 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 15000 } = {})
   const onMessage = (data) => {
     try {
       const msg = JSON.parse(data);
-      if (msg.id && inflight.has(msg.id)) {
-        const { resolve } = inflight.get(msg.id);
-        inflight.delete(msg.id);
+      if (msg.id && cmdInflight.has(msg.id)) {
+        const { resolve } = cmdInflight.get(msg.id);
+        cmdInflight.delete(msg.id);
         resolve(msg.result);
       }
     } catch (_) {}
   };
 
   const onClose = () => {
-    for (const { reject } of inflight.values()) reject(new Error('Browser CDP WebSocket closed.'));
-    inflight.clear();
+    for (const { reject } of cmdInflight.values()) reject(new Error('Browser CDP WebSocket closed.'));
+    cmdInflight.clear();
   };
 
   const openPromise = new Promise((resolve, reject) => {
@@ -144,19 +225,11 @@ async function browserWsCommand(method, params = {}, { timeoutMs = 15000 } = {})
   ws.on('message', onMessage);
   ws.on('close', onClose);
 
-  let timer;
   try {
     await openPromise;
-
-    // Timer erst NACH erfolgreichem Öffnen starten
-    timer = setTimeout(() => {
-      try { ws.close(); } catch (_) {}
-    }, timeoutMs);
-
     const result = await send(method, params);
     return result;
   } finally {
-    if (timer) clearTimeout(timer);
     try { ws.close(); } catch (_) {}
   }
 }
@@ -186,157 +259,42 @@ async function cdpCreateTarget(url) {
   throw new Error('webSocketDebuggerUrl for new target not found.');
 }
 
-/**
- * CDP Target schließen: per Browser-WS Target.closeTarget
- */
-async function cdpCloseTarget(id) {
-  try {
-    await browserWsCommand('Target.closeTarget', { targetId: id });
-  } catch (_) {
-    // ignore
-  }
-}
 
 /**
- * Aus dem Target über CDP den Text aus <div class="Json-Text"> lesen, bis vorhanden.
+ * Liest JSON aus der bereits geöffneten Seite aus <div class="Json-Text">
  */
-async function cdpExtractJsonFromTarget(wsUrl, { timeoutMs = 20000, pollMs = 200 } = {}) {
-  const ws = new WebSocket(wsUrl);
-  let nextId = 1;
-  const inflight = new Map();
+async function extractJsonFromPage() {
+  const expr = `(function(){
+    const el = document.querySelector('.Json-Text');
+    return el ? el.textContent || el.innerHTML : null;
+  })()`;
 
-  function send(method, params = {}) {
-    const id = nextId++;
-    const msg = { id, method, params };
-    return new Promise((resolve, reject) => {
-      if (ws.readyState !== WebSocket.OPEN) {
-        return reject(new Error(`WebSocket not open: readyState ${ws.readyState}`));
-      }
-      inflight.set(id, { resolve, reject });
-      ws.send(JSON.stringify(msg), (err) => {
-        if (err) {
-          inflight.delete(id);
-          reject(err);
-        }
-      });
-    });
+  const res = await sendToPersistent('Runtime.evaluate', { expression: expr, returnByValue: true });
+
+  if (!res || !res.result || !res.result.value) {
+    throw new Error('Kein .Json-Text Element gefunden.');
   }
 
-  const onMessage = (data) => {
-    try {
-      const msg = JSON.parse(data);
-      if (msg.id && inflight.has(msg.id)) {
-        const { resolve } = inflight.get(msg.id);
-        inflight.delete(msg.id);
-        resolve(msg.result);
-      }
-    } catch (_) {}
-  };
+  const text = String(res.result.value).trim();
+  if (!text) {
+    throw new Error('.Json-Text Element ist leer.');
+  }
 
-  const onClose = (code, reason) => {
-    console.log(`[DEBUG] Target WebSocket closed: code=${code}, reason=${reason}`);
-    for (const { reject } of inflight.values()) reject(new Error('CDP WebSocket geschlossen.'));
-    inflight.clear();
-  };
-
-  const onError = (err) => {
-    console.log(`[DEBUG] Target WebSocket error:`, err.message || err);
-  };
-
-  const openPromise = new Promise((resolve, reject) => {
-    ws.once('open', resolve);
-    ws.once('error', (err) => reject(new Error(`WebSocket connection failed: ${err.message}`)));
-  });
-
-  ws.on('message', onMessage);
-  ws.on('close', onClose);
-  ws.on('error', onError);
-
-  let timer;
   try {
-    await openPromise;
-    console.log(`[DEBUG] Target WebSocket opened, readyState: ${ws.readyState}`);
-
-    // Kurze Wartezeit um sicherzustellen, dass die Verbindung stabil ist
-    await new Promise(r => setTimeout(r, 100));
-    console.log(`[DEBUG] After 100ms wait, readyState: ${ws.readyState}`);
-
-    await send('Runtime.enable');
-    await send('Page.enable');
-
-    // Warte auf Page.loadEventFired
-    let loadFired = false;
-    const loadPromise = new Promise((resolve) => {
-      const originalOnMessage = ws.listeners('message')[0];
-      ws.on('message', (data) => {
-        try {
-          const msg = JSON.parse(data);
-          if (msg.method === 'Page.loadEventFired') {
-            loadFired = true;
-            resolve();
-          }
-        } catch (_) {}
-      });
-    });
-
-    // Warte max 10s auf Load-Event
-    await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 10000))]);
-    console.log(`[DEBUG] Page load event fired: ${loadFired}`);
-
-    const expr = `(function(){
-      const el = document.querySelector('.Json-Text');
-      return {
-        found: !!el,
-        textContent: el ? el.textContent : null,
-        innerHTML: el ? el.innerHTML : null,
-        bodyLength: document.body ? document.body.innerHTML.length : 0,
-        allJsonTextElements: document.querySelectorAll('.Json-Text').length
-      };
-    })()`;
-
-    // Separate Timeout-Logik: Wir setzen ein End-Datum aber schließen WebSocket nicht automatisch
-    const end = Date.now() + timeoutMs;
-    let lastDebugInfo = null;
-    while (Date.now() < end && ws.readyState === WebSocket.OPEN) {
-      const res = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
-      const debugInfo = res && res.result && res.result.value ? res.result.value : {};
-      lastDebugInfo = debugInfo;
-
-      console.log(`[DEBUG] Element found: ${debugInfo.found}, textContent length: ${debugInfo.textContent?.length || 0}, innerHTML length: ${debugInfo.innerHTML?.length || 0}, body length: ${debugInfo.bodyLength}, .Json-Text elements: ${debugInfo.allJsonTextElements}`);
-
-      const text = debugInfo.textContent || debugInfo.innerHTML || '';
-      const trimmed = String(text).trim();
-
-      if (trimmed) {
-        try {
-          return JSON.parse(trimmed);
-        } catch {
-          const m = trimmed.match(/\{[\s\S]*\}$/);
-          if (m) {
-            try { return JSON.parse(m[0]); } catch (_) {}
-          }
-        }
-      }
-      await new Promise((r) => setTimeout(r, pollMs));
+    return JSON.parse(text);
+  } catch (e) {
+    const m = text.match(/\{[\s\S]*\}$/);
+    if (m) {
+      try {
+        return JSON.parse(m[0]);
+      } catch (_) {}
     }
-
-    if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`WebSocket closed during polling. Last readyState: ${ws.readyState}`);
-    }
-
-    const errorMsg = lastDebugInfo
-      ? `No .Json-Text found: element=${lastDebugInfo.found}, textLength=${lastDebugInfo.textContent?.length || 0}, htmlLength=${lastDebugInfo.innerHTML?.length || 0}, bodyLength=${lastDebugInfo.bodyLength}, elements=${lastDebugInfo.allJsonTextElements}`
-      : 'Timeout: JSON nicht gefunden.';
-    throw new Error(errorMsg);
-  } finally {
-    try { ws.close(); } catch (_) {}
+    throw new Error(`JSON Parse-Fehler: ${e.message}`);
   }
 }
 
 module.exports = {
   initBrowser,
-  cdpCreateTarget,
-  cdpCloseTarget,
-  cdpExtractJsonFromTarget
+  extractJsonFromPage
 };
 

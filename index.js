@@ -1,15 +1,28 @@
 const http = require('http');
 const { URL } = require('url');
-const { initBrowser, cdpCreateTarget, cdpCloseTarget, cdpExtractJsonFromTarget } = require('./browser');
+const { initBrowser, extractJsonFromPage } = require('./browser');
 const { jsonToPrometheus } = require('./helpers');
 
 const PORT = process.env.PORT || 8055;
-const DISHY_ADDRESS = process.env.DISHY_ADDRESS || 'http://192.168.100.1';
+const DISHY_ADDRESS = process.env.DISHY_ADDRESS || 'http://dishy.starlink.com/';
 const CDP_HOST = process.env.CDP_HOST || '127.0.0.1';
 const CDP_PORT = Number(process.env.CDP_PORT) || 9222;
 const METRICS_PREFIX = process.env.METRICS_PREFIX || 'starlink_';
 
-initBrowser({ host: CDP_HOST, port: CDP_PORT });
+let browserReady = false;
+
+// Browser beim Start initialisieren
+(async () => {
+  try {
+    console.log('Initialisiere Browser...');
+    await initBrowser({ host: CDP_HOST, port: CDP_PORT, dishyUrl: DISHY_ADDRESS });
+    browserReady = true;
+    console.log('Browser bereit.');
+  } catch (err) {
+    console.error('Browser-Initialisierung fehlgeschlagen:', err);
+    process.exit(1);
+  }
+})();
 
 const server = http.createServer(async (req, res) => {
 	if (req.method !== 'GET') {
@@ -25,31 +38,14 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	if (url.pathname === '/metrics') {
+		if (!browserReady) {
+			res.writeHead(503, { 'Content-Type': 'application/json' });
+			return res.end(JSON.stringify({ error: 'Browser noch nicht bereit' }));
+		}
+
 		try {
 			const startTimestamp = Date.now();
-			const target = await cdpCreateTarget(DISHY_ADDRESS);
-			const { id, webSocketDebuggerUrl } = target;
-			let data;
-			try {
-				data = await cdpExtractJsonFromTarget(webSocketDebuggerUrl, {
-					timeoutMs: Number(url.searchParams.get('timeoutMs')) || 20000,
-					pollMs: Number(url.searchParams.get('pollMs')) || 200,
-				});
-			} finally {
-				if (id) {
-					await cdpCloseTarget(id);
-				}
-			}
-
-			if (!data) {
-				res.writeHead(502, { 'Content-Type': 'application/json' });
-				return res.end(
-					JSON.stringify({
-						error: 'Dishy JSON not found in DOM',
-						hint: 'Check reachability or increase timeoutMs.'
-					}),
-				);
-			}
+			const data = await extractJsonFromPage();
 
 			const endTimestamp = Date.now();
 			data.exporter_request_ms = endTimestamp - startTimestamp;
@@ -68,13 +64,13 @@ const server = http.createServer(async (req, res) => {
 			res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
 			return res.end(body);
 		} catch (e) {
-			console.error('CDP-Error:', e && e.message ? e.message : e);
+			console.error('Scrape-Error:', e && e.message ? e.message : e);
 			res.writeHead(500, { 'Content-Type': 'application/json' });
 			return res.end(
 				JSON.stringify({
-								   error: 'Headless-Session fehlgeschlagen',
-								   message: e && e.message ? e.message : String(e),
-							   }),
+					error: 'Scrape fehlgeschlagen',
+					message: e && e.message ? e.message : String(e),
+				}),
 			);
 		}
 	}
