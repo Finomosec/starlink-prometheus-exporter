@@ -19,6 +19,7 @@ let changeEventCounter = 0;
 function getChromeBin() {
   const candidates = [
     process.env.CHROME_BIN,
+    'brave',
     'chromium',
     'chromium-browser',
     'google-chrome',
