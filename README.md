@@ -141,3 +141,17 @@ systemctl --user start starlink-exporter
 - Nesting: Nested keys are not concatenated. The metric name is the first path segment; the remaining path (snake_case) is emitted as label `name`. Example: `alerts.dish_is_heating` → `starlink_alerts{name="dish_is_heating",id="123"} 0`.
 - Additional exporter metric: `exporter_request_ms` (duration per request in milliseconds).
 - Endpoints: `/` (landing page), `/metrics` (Prometheus text format), `/health` (simple health check).
+
+## Debugging
+
+Der Exporter startet einen headless Chrome-Browser mit aktiviertem Chrome DevTools Protocol (CDP). Sie können sich von localhost mit einem Chrome-Browser verbinden, um die Seite zu inspizieren:
+
+1. Stellen Sie sicher, dass der Exporter läuft
+2. Öffnen Sie Chrome und navigieren Sie zu:
+   ~~~
+   http://localhost:9222
+   ~~~
+   (oder den in `CDP_PORT` konfigurierten Port)
+3. Klicken Sie auf die angezeigte Seite, um die Chrome DevTools zu öffnen
+
+**Hinweis:** Der CDP-Zugriff funktioniert nur von `localhost`. Dies ist eine Sicherheitsmaßnahme, da CDP vollen Zugriff auf den Browser ermöglicht.
