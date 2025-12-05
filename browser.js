@@ -157,6 +157,7 @@ async function initBrowser({ host = '127.0.0.1', port = 9222, dishyUrl = 'http:/
   console.log('[Browser] JSON gefunden, registriere Change-Listener...');
 
   // Registriere DOM-Change-Listener einmalig
+  changeEventCounter = 0;
   await registerJsonChangeListener();
 
   // Pausiere Debugger
