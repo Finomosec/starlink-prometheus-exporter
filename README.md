@@ -62,6 +62,12 @@ starlink_stowed{id="ut12345678-12f3456c-d1e23456"} 0
 starlink_exporter_request_ms{id="ut12345678-12f3456c-d1e23456"} 226
 ```
 
+## Grafana Visualization
+
+<img width="1419" height="658" alt="image" src="https://github.com/user-attachments/assets/6d4b177c-7d8d-4dd8-a209-348e4ccd460f" />
+
+Get it here: [https://grafana.com/grafana/dashboards/24517-starlink/](https://grafana.com/grafana/dashboards/24517-starlink/)
+
 ## Endpoints
 
 - `GET /`  
